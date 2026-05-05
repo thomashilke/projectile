@@ -2887,7 +2887,7 @@ For example, \"src/foo/bar.el\" returns (\"src/foo/\" \"src/\")."
 The list depends on `:related-files-fn' project option and
 `projectile-other-file-alist'.  For the latter, FLEX-MATCHING can be used
 to match any basename."
-  (if-let* ((plist (projectile--related-files-plist-by-kind  file-name :other)))
+  (if-let* ((plist (projectile--related-files-plist-by-kind  file-name :other nil)))
       (projectile--related-files-from-plist plist)
     (projectile--other-extension-files file-name
                                        (projectile-current-project-files)
@@ -3384,7 +3384,7 @@ PROJECT-ROOT is the project root."
                       (error "Unsupported value type of :related-files-fn")))
                rel-path)))
 
-(defun projectile--related-files-plist-by-kind (file kind)
+(defun projectile--related-files-plist-by-kind (file kind create)
   "Return a plist containing :paths and/or :predicate of KIND for FILE."
   (if-let* ((project-root (projectile-project-root))
            (plist (projectile--related-files-plist project-root file))
@@ -3395,12 +3395,16 @@ PROJECT-ROOT is the project root."
                        kind-value))
              (paths (seq-uniq (seq-filter 'stringp values)))
              (predicates (seq-uniq (seq-filter 'functionp values))))
+        (when create
+          (dolist (p paths)
+            (when (not (projectile-file-exists-p p))
+              (projectile--create-directories-for (projectile-expand-root p)))))
         (append
          ;; Make sure that :paths exists even with nil if there is no predicates
          (when (or paths (null predicates))
            (list :paths (seq-filter
                          (lambda (f)
-                           (projectile-file-exists-p (projectile-expand-file-name-wildcard f project-root)))
+                           (or create (projectile-file-exists-p (projectile-expand-file-name-wildcard f project-root))))
                          paths)))
          (when predicates
            (list :predicate (if (= 1 (length predicates))
@@ -3428,7 +3432,7 @@ PROJECT-ROOT is the project root."
 
 (defun projectile--related-files (file kind)
   "Return a list of related files of KIND for FILE."
-  (projectile--related-files-from-plist (projectile--related-files-plist-by-kind file kind)))
+  (projectile--related-files-from-plist (projectile--related-files-plist-by-kind file kind nil)))
 
 (defun projectile--find-related-file (file &optional kind)
   "Choose a file from files related to FILE as KIND.
@@ -4851,7 +4855,7 @@ The precedence for determining test files to return is:
    is a substring of IMPL-FILE."
   (projectile--acond
    ((projectile--test-file-from-test-dir-fn impl-file) (list it))
-   ((projectile--related-files-plist-by-kind impl-file :test)
+   ((projectile--related-files-plist-by-kind impl-file :test t)
     (projectile--related-files-from-plist it))
    ((projectile--test-file-from-test-dir-str impl-file) (list it))
    ((projectile--best-or-all-candidates-based-on-parents-dirs
@@ -4885,7 +4889,7 @@ The precedence for determining implementation files to return is:
    is a substring of TEST-FILE."
   (projectile--acond
    ((projectile--impl-file-from-src-dir-fn test-file) (list it))
-   ((projectile--related-files-plist-by-kind test-file :impl)
+   ((projectile--related-files-plist-by-kind test-file :impl nil)
     (projectile--related-files-from-plist it))
    ((projectile--impl-file-from-src-dir-str test-file) (list it))
    ((projectile--best-or-all-candidates-based-on-parents-dirs
